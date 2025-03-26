@@ -266,6 +266,20 @@ case class ScalaPresentationCompiler(
         .asJava
     }(emptyQueryContext)
 
+  override def inspect(
+      fqcn: String,
+      inspectLevel: Integer
+  ): CompletableFuture[ju.List[InspectResult]] = {
+    compilerAccess.withNonInterruptableCompiler[ju.List[InspectResult]](
+      Nil.asJava,
+      EmptyCancelToken
+    ) { access =>
+      SymbolInformationProvider(using access.compiler().currentCtx)
+        .inspect(fqcn, inspectLevel)
+        .asJava
+    }(emptyQueryContext)
+  }
+
   def semanticdbTextDocument(
       filename: URI,
       code: String

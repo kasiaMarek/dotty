@@ -18,6 +18,11 @@ import dotty.tools.pc.utils.InteractiveEnrichments.stripBackticks
 import scala.meta.internal.pc.PcSymbolInformation
 import scala.meta.internal.pc.SymbolInfo
 import dotty.tools.dotc.core.Denotations.{Denotation, MultiDenotation}
+import scala.meta.pc.InspectResult
+import org.eclipse.{lsp4j => l}
+import scala.meta.internal.pc.InspectResultImpl
+import scala.meta.internal.pc.InspectResultParamsListImp
+import dotty.tools.pc.utils.InteractiveEnrichments.*
 
 class SymbolInformationProvider(using Context):
 
@@ -85,6 +90,56 @@ class SymbolInformationProvider(using Context):
     end match
   end info
 
+  def inspect(fqcn: String, inspectLevel: Integer): List[InspectResult] = {
+    val symbols =
+      try SymbolProvider.toSymbols(SymbolInfo.getPartsFromFQCN(fqcn)).filterNot(_.is(Flags.Synthetic))
+      catch case NonFatal(e) => Nil
+
+    def resultWithMembers(symbol: Symbol, members: List[InspectResultImpl]) =
+      InspectResultImpl(
+        SemanticdbSymbols.symbolName(symbol),
+        getSymbolLspKind(symbol),
+        symbol.info.finalResultType.show,
+        accessString(symbol),
+        symbol.paramSymss.collect { case params =>
+          val isType = params.headOption.map(_.is(Flags.TypeParam)).getOrElse(true)
+          InspectResultParamsListImp(
+            if (isType) params.map(_.decodedName)
+            else params.map(p => s"${p.decodedName}: ${p.info.show}"),
+            isType0 = isType,
+            implicitOrUsingKeyword =
+              if params.headOption.exists(_.is(Flags.Implicit)) then "implicit"
+              else if params.headOption.exists(_.is(Flags.Given)) then "using"
+              else ""
+          )
+        },
+        members
+      )
+
+    symbols.map { symbol =>
+      val members =
+        if (inspectLevel > 0) symbol.info.allMembers.collect {
+          case denot
+              if !denot.symbol.is(Flags.Synthetic) && !(denot.symbol.is(Flags.Method) && SymbolProvider.ignoredMethodsForInspect(denot.symbol.decodedName)) =>
+            resultWithMembers(denot.symbol, Nil)
+        }.toList
+        else Nil
+      resultWithMembers(symbol, members)
+    }
+  }
+
+  private def accessString(sym: Symbol): String =
+    if (sym.privateWithin == NoSymbol)
+      if (sym.isAllOf(Flags.PrivateLocal)) "private[this] "
+      else if (sym.is(Flags.Private)) "private "
+      else if (sym.isAllOf(Flags.ProtectedLocal)) "protected[this] "
+      else if (sym.is(Flags.Protected)) "protected "
+      else "public "
+    else
+      val ssym = sym.privateWithin.decodedName
+      if (sym.is(Flags.Protected)) s"protected[$ssym] "
+      else s"private[$ssym] "
+
   private def getSymbolKind(sym: Symbol): PcSymbolKind =
     if sym.isAllOf(Flags.JavaInterface) then PcSymbolKind.INTERFACE
     else if sym.is(Flags.Trait) then PcSymbolKind.TRAIT
@@ -99,9 +154,28 @@ class SymbolInformationProvider(using Context):
     else if sym.is(Flags.TypeParam) then PcSymbolKind.TYPE_PARAMETER
     else if sym.isType then PcSymbolKind.TYPE
     else PcSymbolKind.UNKNOWN_KIND
+
+  private def getSymbolLspKind(sym: Symbol): l.SymbolKind =
+    if sym.isAllOf(Flags.JavaInterface) then l.SymbolKind.Interface
+    else if sym.is(Flags.Trait) then l.SymbolKind.Interface
+    else if sym.isConstructor then l.SymbolKind.Constructor
+    else if sym.is(Flags.Module) then l.SymbolKind.Module
+    else if sym.isClass then l.SymbolKind.Class
+    else if sym.is(Flags.Method) && sym.owner.is(Flags.ModuleClass) then l.SymbolKind.Function
+    else if sym.is(Flags.Method) then l.SymbolKind.Method
+    else if sym.is(Flags.Package) then l.SymbolKind.Package
+    else if sym.isType then l.SymbolKind.Class
+    else l.SymbolKind.Package
 end SymbolInformationProvider
 
 object SymbolProvider:
+
+  val ignoredMethodsForInspect: Set[String] =
+    Set(
+      "synchronized", "##", "!=", "==", "ne", "eq", "finalize", "wait", "wait",
+      "wait", "notifyAll", "notify", "toString", "clone", "equals", "hashCode",
+      "getClass", "asInstanceOf", "isInstanceOf"
+    )
 
   def compilerSymbol(symbol: String)(using Context): Option[Symbol] =
     compilerSymbols(symbol).find(sym => SemanticdbSymbols.symbolName(sym) == symbol)
@@ -113,7 +187,7 @@ object SymbolProvider:
   private def normalizePackage(pkg: String): String =
     pkg.replace("/", ".").nn.stripSuffix(".")
 
-  private def toSymbols(info: SymbolInfo.SymbolParts)(using Context): List[Symbol] =
+  def toSymbols(info: SymbolInfo.SymbolParts)(using Context): List[Symbol] =
     def collectSymbols(denotation: Denotation): List[Symbol] =
       denotation match
         case MultiDenotation(denot1, denot2) =>
@@ -122,7 +196,7 @@ object SymbolProvider:
 
     def loop(
         owners: List[Symbol],
-        parts: List[(String, Boolean)],
+        parts: List[(String, Option[Boolean])],
     ): List[Symbol] =
       parts match
         case (head, isClass) :: tl =>
@@ -130,9 +204,12 @@ object SymbolProvider:
             owners.flatMap { owner =>
               val name = head.stripBackticks
               val next =
-                if isClass then owner.info.member(typeName(name))
-                else owner.info.member(termName(name))
-              collectSymbols(next).filter(_.exists)
+                isClass match {
+                  case Some(true) => List(owner.info.member(typeName(name)))
+                  case Some(false) => List(owner.info.member(termName(name)))
+                  case None => List(owner.info.member(typeName(name)), owner.info.member(termName(name)))
+                }
+              next.flatMap(collectSymbols).filter(_.exists)
             }
           if foundSymbols.nonEmpty then loop(foundSymbols, tl)
           else Nil

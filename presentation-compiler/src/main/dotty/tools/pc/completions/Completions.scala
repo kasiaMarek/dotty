@@ -481,20 +481,6 @@ class Completions(
           ._1
         (completions, true)
 
-      case (imp @ Import(expr, selectors)) :: _
-          if isAmmoniteCompletionPosition(imp, rawFileName, "$file") =>
-        (
-          AmmoniteFileCompletions.contribute(
-            expr,
-            selectors,
-            pos.endPos.toLsp,
-            rawPath.toString(),
-            workspace,
-            rawFileName
-          ),
-          true,
-        )
-
       case (imp @ Import(_, selectors)) :: _
           if isAmmoniteCompletionPosition(imp, rawFileName, "$ivy") ||
             isWorksheetIvyCompletionPosition(imp, imp.sourcePos) =>
