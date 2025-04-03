@@ -94,10 +94,4 @@ class InfoSuite extends BasePCSuite {
     assertMemberDefsAnnotations("a/D#", "scala.annotation.nowarn")
     assertMemberDefsAnnotations("a/D#bbb().", "")
 
-  // hacky way to add a source file to the presentation compiler sources
-  private def withSource(code: String) =
-    val filename = "Hover.scala"
-    val pcParams = CompilerOffsetParams(Paths.get(filename).toUri(), code, 0)
-    presentationCompiler.hover(pcParams).get()
-
 }

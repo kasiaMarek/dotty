@@ -23,6 +23,8 @@ import org.eclipse.lsp4j.MarkupContent
 import org.eclipse.lsp4j.jsonrpc.messages.Either as JEither
 import org.junit.runner.RunWith
 import scala.meta.pc.CompletionItemPriority
+import scala.meta.internal.metals.CompilerOffsetParams
+import java.nio.file.Paths
 
 object TestResources:
   val classpath = BuildInfo.ideTestsDependencyClasspath.map(_.toPath).toSeq
@@ -124,6 +126,12 @@ abstract class BasePCSuite extends PcAssertions:
       val paddedSources = completionSources.padTo(strippedString.size, CompletionSource.Empty)
       val (sortedCompletions, sortedSources) = (strippedString zip paddedSources).sortBy(_._1).unzip
       sortedCompletions.mkString("\n") -> sortedSources
+
+  // hacky way to add a source file to the presentation compiler sources
+  def withSource(code: String) =
+    val filename = "Hover.scala"
+    val pcParams = CompilerOffsetParams(Paths.get(filename).toUri(), code, 0)
+    presentationCompiler.hover(pcParams).get()
 
   extension (s: String)
     def triplequoted: String = s.replace("'''", "\"\"\"")

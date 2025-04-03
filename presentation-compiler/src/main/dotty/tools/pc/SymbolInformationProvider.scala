@@ -120,7 +120,9 @@ class SymbolInformationProvider(using Context):
       val members =
         if (inspectLevel > 0) symbol.info.allMembers.collect {
           case denot
-              if !denot.symbol.is(Flags.Synthetic) && !(denot.symbol.is(Flags.Method) && SymbolProvider.ignoredMethodsForInspect(denot.symbol.decodedName)) =>
+              if !denot.symbol.is(Flags.Synthetic) && !(denot.symbol.is(Flags.Method) &&
+              SymbolProvider.ignoredMethodsForInspect(denot.symbol.decodedName))
+              && !denot.symbol.is(Flags.Param) && !denot.symbol.is(Flags.ModuleClass) =>
             resultWithMembers(denot.symbol, Nil)
         }.toList
         else Nil
@@ -159,22 +161,23 @@ class SymbolInformationProvider(using Context):
     if sym.isAllOf(Flags.JavaInterface) then l.SymbolKind.Interface
     else if sym.is(Flags.Trait) then l.SymbolKind.Interface
     else if sym.isConstructor then l.SymbolKind.Constructor
-    else if sym.is(Flags.Module) then l.SymbolKind.Module
+    else if sym.is(Flags.Module) || sym.is(Flags.ModuleClass) then l.SymbolKind.Module
     else if sym.isClass then l.SymbolKind.Class
     else if sym.is(Flags.Method) && sym.owner.is(Flags.ModuleClass) then l.SymbolKind.Function
     else if sym.is(Flags.Method) then l.SymbolKind.Method
     else if sym.is(Flags.Package) then l.SymbolKind.Package
     else if sym.isType then l.SymbolKind.Class
-    else l.SymbolKind.Package
+    else l.SymbolKind.Variable
 end SymbolInformationProvider
 
 object SymbolProvider:
-
   val ignoredMethodsForInspect: Set[String] =
     Set(
       "synchronized", "##", "!=", "==", "ne", "eq", "finalize", "wait", "wait",
       "wait", "notifyAll", "notify", "toString", "clone", "equals", "hashCode",
-      "getClass", "asInstanceOf", "isInstanceOf"
+      "getClass", "asInstanceOf", "isInstanceOf", "productElementName",
+      "productPrefix", "productArity", "productElementNames", "productElement",
+      "productIterator", "canEqual"
     )
 
   def compilerSymbol(symbol: String)(using Context): Option[Symbol] =
